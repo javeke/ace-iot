@@ -28,7 +28,7 @@ String message = "";
 
 void handleConnect(Stomp::StompCommand cmd){
   stompClient.sendMessage("/ace/test", "Test string");
-  stompClient.subscribe("/controlData/organizations/1/devices/0", Stomp::CLIENT, handleControlMessage);
+  stompClient.subscribe("/controlData/organizations/1/devices/2", Stomp::CLIENT, handleControlMessage);
   Serial.println("Connected to STOMP broker");
 }
 
@@ -44,7 +44,7 @@ void sendMessageAfterInterval(unsigned long timeout) {
   if(millis() > (timeout + lastInterval)){
     int paramValue = random(10, 30);
     message = "{\\\"data\\\": {\\\"paramName\\\": \\\"Temperature\\\",\\\"paramValue\\\": "+String(paramValue)+",\\\"createdAt\\\": "+String(lastInterval)+"},\\\"message\\\":\\\"New data from NodeMCU\\\"}";
-    stompClient.sendMessage("/ace/data/organizations/1/devices/0", message);
+    stompClient.sendMessage("/ace/data/organizations/1/devices/2", message);
     lastInterval = millis();
   }
 }
