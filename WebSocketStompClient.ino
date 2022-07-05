@@ -2,10 +2,14 @@
 #include <ESP8266WiFi.h>
 #include <WebSocketsClient.h>
 #include <StompClient.h>
+#include <ESPAsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 
 #include "env.h";
 
-// Constants
+
+// Variables
+
 const char* ssid = SSID;
 const char* password = PASSWORD;
 
@@ -14,15 +18,16 @@ const int port = PORT;
 
 const char* stompUrl = STOMP_URL;
 
-
-// Variables
-
 WebSocketsClient webSocket;
 bool ledState = 0;
 unsigned long lastInterval = 0;
 
 Stomp::StompClient stompClient(webSocket, host, port, stompUrl, true);
 String message = "";
+
+AsyncWebServer httpServer(80);
+
+bool shouldReset = 0;
 
 // Functions
 
@@ -33,7 +38,7 @@ void handleConnect(Stomp::StompCommand cmd){
 }
 
 void handleError(const Stomp::StompCommand cmd){
-  Serial.println("ERROR: ");
+  Serial.println("ERROR: "+ cmd.body);
 }
 
 void handleDisconnect(Stomp::StompCommand cmd){
@@ -57,6 +62,14 @@ Stomp::Stomp_Ack_t handleControlMessage(Stomp::StompCommand cmd){
   digitalWrite(LED_BUILTIN, ledState);
   return Stomp::CONTINUE;
 }
+
+
+// HTTP Callbacks
+
+void handleHomeRoute(AsyncWebServerRequest* request) {
+  request->send(200, "text/plain", "Welcome to Ace");
+}
+
 
 void setup() {
   // put your setup code here, to run once:
@@ -83,6 +96,21 @@ void setup() {
   Serial.println("Initialize WS connection");
 
   pinMode(LED_BUILTIN, OUTPUT);
+
+  Serial.println("Mounting SPIFFS");
+
+  if(!SPIFFS.begin()){
+    Serial.println("Failed to mount SPIFFS");
+  }
+
+  Serial.println("Mounted SPIFFS");
+
+  Serial.println("Setting up web server");
+
+  httpServer.on("/", HTTP_GET, handleHomeRoute);
+  httpServer.serveStatic("/", SPIFFS, "/static/").setDefaultFile("index.html");
+
+  httpServer.begin();
 }
 
 void loop() {
