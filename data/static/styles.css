@@ -1,0 +1,70 @@
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+:root {
+  font-family: Arial, Helvetica, sans-serif;
+  --primary-bg-color: #212c2e; 
+}
+
+main {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  padding: 16px;
+}
+
+.state-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.state-actions a {
+  text-decoration: none;
+  background-color: var(--primary-bg-color);
+  color: white;
+  border-radius: 8px;
+  padding: 0.5rem 1rem
+}
+
+.wifi-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 1rem;
+}
+
+.wifi-form-container {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+}
+
+.wifi-form-label {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.wifi-form-input input {
+  padding: 0.3rem;
+  outline-width: 1px;
+  font-weight: 600;
+}
+
+.wifi-form-input input::placeholder {
+  font-weight: normal;
+  font-style: italic;
+}
+
+.wifi-form button[type="submit"] {
+  padding: 0.5rem;
+  background-color: var(--primary-bg-color);
+  color: white;
+  border-radius: 8px;
+}

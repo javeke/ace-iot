@@ -3,10 +3,35 @@
   <meta charset="UTF-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link type="text/css" rel="stylesheet" href="styles.css">
   <title>Ace Iot Device</title>
 </head>
 <body>
-  <h1>Welcome to Ace IoT</h1>
-  <p>You are blessed to be here.</p>
+  <main>
+    <h1>Welcome to Ace IoT Dashboard</h1>
+    <div class="state-actions">
+      <a href="/state?v=0">Turn On LED</a>
+      <a href="/state?v=1">Turn Off LED</a>
+    </div>
+    <form action="/connect" class="wifi-form">
+      <h3>Connect to WiFi Access Point</h3>
+      <div class="wifi-form-container">
+        <div class="wifi-form-label">
+          <label for="ssid">SSID: </label>
+        </div>
+        <div class="wifi-form-input">
+          <input type="text" id="ssid" name="ssid" placeholder="SSID" required>
+        </div>
+        <div class="wifi-form-label">
+          <label for="password">Password: </label>
+        </div>
+        <div class="wifi-form-input">
+          <input type="text" id="password" name="password" placeholder="Password" required minlength="8">
+        </div>
+      </div>
+      <button type="submit">Connect</button>
+    </form>
+  </main>
+  <script defer src="index.js"></script>
 </body>
 </html>
