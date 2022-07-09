@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ace IoT Dashboard</title>
+</head>
+<body>
+  <h1>Ace IoT Dashboard</h1>
+  <main>
+    <form action="/configure">
+      <div>
+        <label for="organizationId">Organization Id</label>
+        <input id="organizationId" name="organizationId" type="text" placeholder="Organization Id" required>
+      </div>
+      <button type="submit">Update</button>
+    </form>
+
+    <form action="/configure">
+      <div>
+        <label for="deviceId">Device Id</label>
+        <input id="deviceId" name="deviceId" type="text" placeholder="Device Id" required>
+      </div>
+      <button type="submit">Update</button>
+    </form>
+  </main>
+</body>
+</html>
