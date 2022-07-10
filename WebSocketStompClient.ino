@@ -4,6 +4,7 @@
 #include <StompClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
+#include <ArduinoJson.h>
 
 #include "env.h";
 
@@ -22,8 +23,8 @@ const int port = PORT;
 
 const char* stompUrl = STOMP_URL;
 
-const char* organizationId = ORGANIZATION_ID;
-const char* deviceId = DEVICE_ID;
+String organizationId = ORGANIZATION_ID;
+String deviceId = DEVICE_ID;
 
 WebSocketsClient webSocket;
 bool ledState = HIGH;
@@ -35,6 +36,9 @@ String message = "";
 ESP8266WebServer httpServer(80);
 
 bool shouldReset = 0;
+
+String fileMetadata = "";
+StaticJsonDocument<512> secretJsonData;
 
 // Functions
 
@@ -101,7 +105,7 @@ bool connectToWifi(const char* wifiName, const char* wifiPassword){
 
 void handleConnect(Stomp::StompCommand cmd){
   stompClient.sendMessage("/ace/test", "Test string");
-  String destination = "/controlData/organizations/"+ String(organizationId) + "/devices/" + String(deviceId);
+  String destination = "/controlData/organizations/"+ organizationId + "/devices/" + deviceId;
   stompClient.subscribe((char*)destination.c_str(), Stomp::CLIENT, handleControlMessage);
   Serial.println("Connected to STOMP broker");
 }
@@ -118,7 +122,7 @@ void sendMessageAfterInterval(unsigned long timeout) {
   if(millis() > (timeout + lastInterval) && WiFi.isConnected()){
     int paramValue = random(10, 30);
     message = "{\\\"data\\\": {\\\"paramName\\\": \\\"Temperature\\\",\\\"paramValue\\\": "+String(paramValue)+",\\\"createdAt\\\": "+String(lastInterval)+"},\\\"message\\\":\\\"New data from NodeMCU\\\"}";
-    String destination = "/ace/data/organizations/"+ String(organizationId) + "/devices/" + String(deviceId);
+    String destination = "/ace/data/organizations/"+ organizationId + "/devices/" + deviceId;
     stompClient.sendMessage(destination, message);
     lastInterval = millis();
   }
@@ -136,8 +140,7 @@ Stomp::Stomp_Ack_t handleControlMessage(Stomp::StompCommand cmd){
 // HTTP Callbacks
 
 void handleHomeRoute() {
-  String message = String("Welcome to Ace for device ");
-  message.concat(deviceId);
+  String message = "Welcome to Ace for device "+deviceId;
   httpServer.send(200, "text/plain", message);
 }
 
@@ -233,37 +236,65 @@ void handleConfigureRoute(){
     return;
   }
 
+  message = "";
+
   if(httpServer.hasArg("deviceId")){
     for(int i=0; i<args; i++){
       if(httpServer.argName(i).equals("deviceId")){
-        deviceId = httpServer.arg(i).c_str();
-        message = "Updated device Id to" + String(deviceId) + "\n";
+        deviceId = httpServer.arg(i);
+        String deviceMessage = "Updated device Id to" + deviceId + "\n";
 
         File metadata = SPIFFS.open("/metadata.txt", "w+");
 
-        String newData = String(organizationId) + "," + String(deviceId);
+        String newData = organizationId + "," + deviceId;
 
         int written = metadata.print(newData);
 
         if(written == newData.length()){
           Serial.println("Updated the metadata file");
-          message += "Metadata file found and updated\n";
+          deviceMessage += "Metadata file found and updated\n";
         }
         else {
           Serial.println("Failed to update the metadata file");
-          message += "Metadata file update failed\n";
+          deviceMessage += "Metadata file update failed\n";
         }
 
+        message += deviceMessage;
         break;
       }
     }
   }
+
+  if(httpServer.hasArg("organizationId")){
+    for(int i=0; i<args; i++){
+      if(httpServer.argName(i).equals("organizationId")){
+        organizationId = httpServer.arg(i);
+        String orgMessage = "Updated organization Id to" + organizationId + "\n";
+
+        File metadata = SPIFFS.open("/metadata.txt", "w+");
+
+        String newData = organizationId + "," + deviceId;
+
+        int written = metadata.print(newData);
+
+        if(written == newData.length()){
+          Serial.println("Updated the metadata file");
+          orgMessage += "Metadata file found and updated\n";
+        }
+        else {
+          Serial.println("Failed to update the metadata file");
+          orgMessage += "Metadata file update failed\n";
+        }
+        message += orgMessage;
+        break;
+      }
+    }
+  }
+  if(message.length()==0){
+    message = "No configuration changes";
+  }
   httpServer.send(200, "text/plain", message);
 }
-
-// void handleIndexRoute(){
-//   httpServer.send(SPIFFS, )
-// }
 
 
 void setup() {
@@ -321,23 +352,40 @@ void setup() {
     }
     else {
       if(metadata.available()){
-        String data = metadata.readString();
+        fileMetadata = metadata.readString();
 
-        if((data.length() > 0) && (data.indexOf(",") != -1)){
-          data.trim();
+        if((fileMetadata.length() > 0) && (fileMetadata.indexOf(",") != -1)){
+          fileMetadata.trim();
 
-          String oId = data.substring(0,1);
-          String dId = data.substring(2);
+          organizationId = fileMetadata.substring(0,1);
 
-          Serial.println(oId+","+dId);
+          deviceId = fileMetadata.substring(2);
 
-//          deviceId = dId.c_str();
-
-          Serial.printf("Metadata found. OrganizationId - %s\tDeviceId - %s\n", organizationId, deviceId);
+          Serial.printf("Metadata found. OrganizationId - %s\tDeviceId - %s\n", organizationId.c_str(), deviceId.c_str());
         }
       }
+      metadata.close();
     }
   }
+
+  if(SPIFFS.exists("/secrets.json")){
+    File secretsFile = SPIFFS.open("/secrets.json", "r");
+
+    if(!secretsFile) {
+      Serial.println("No secrets file found");
+    }
+    else {
+      deserializeJson(secretJsonData, secretsFile);
+
+      Serial.println((const char*)(secretJsonData["ssid"]));
+      Serial.println((const char*)secretJsonData["password"]);
+      Serial.println((const char*)secretJsonData["serverHost"]);
+      Serial.println((int)secretJsonData["serverPort"]);
+      Serial.println((const char*)secretJsonData["socketUrl"]);
+      secretsFile.close();
+    }
+  }
+
 
   httpServer.begin();
 }

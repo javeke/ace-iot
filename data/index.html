@@ -3,12 +3,14 @@
   <meta charset="UTF-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link type="text/css" rel="stylesheet" href="styles.css">
+  <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
+  <link type="text/css" rel="stylesheet" href="style.css">
+  <link type="text/css" rel="stylesheet" href="index.css">
   <title>Ace Iot WiFi Configuration</title>
 </head>
 <body>
-  <main>
-    <h1>Ace IoT WiFi Configuration</h1>
+  <h1>Ace IoT WiFi Configuration</h1>
+  <main>  
     <div class="state-actions">
       <a href="/state?v=0">Turn On LED</a>
       <a href="/state?v=1">Turn Off LED</a>
@@ -20,13 +22,13 @@
           <label for="ssid">SSID: </label>
         </div>
         <div class="wifi-form-input">
-          <input type="text" id="ssid" name="ssid" placeholder="SSID" required>
+          <input type="text" id="ssid" name="ssid" placeholder="ssid" required>
         </div>
         <div class="wifi-form-label">
           <label for="password">Password: </label>
         </div>
         <div class="wifi-form-input">
-          <input type="text" id="password" name="password" placeholder="Password" required minlength="8">
+          <input type="text" id="password" name="password" placeholder="password" required minlength="8">
         </div>
       </div>
       <button type="submit">Connect</button>
