@@ -237,7 +237,23 @@ void handleConfigureRoute(){
     for(int i=0; i<args; i++){
       if(httpServer.argName(i).equals("deviceId")){
         deviceId = httpServer.arg(i).c_str();
-        message = "Updated device Id to" + String(deviceId);
+        message = "Updated device Id to" + String(deviceId) + "\n";
+
+        File metadata = SPIFFS.open("/metadata.txt", "w+");
+
+        String newData = String(organizationId) + "," + String(deviceId);
+
+        int written = metadata.print(newData);
+
+        if(written == newData.length()){
+          Serial.println("Updated the metadata file");
+          message += "Metadata file found and updated\n";
+        }
+        else {
+          Serial.println("Failed to update the metadata file");
+          message += "Metadata file update failed\n";
+        }
+
         break;
       }
     }
@@ -292,11 +308,35 @@ void setup() {
   httpServer.on("/state", handleStateRoute);
   httpServer.on("/connect", handleConnectRoute);
   httpServer.on("/configure", handleConfigureRoute);
-  // httpServer.on("/index.html", handleIndexRoute);
-  httpServer.serveStatic("/", SPIFFS, "/");
+  httpServer.serveStatic("/", SPIFFS, "/", "no-cache");
 
   if(MDNS.begin(softAPSSID)){
     Serial.println("MDNS responder started");
+  }
+
+  if(SPIFFS.exists("/metadata.txt")){
+    File metadata = SPIFFS.open("/metadata.txt", "r");
+    if(!metadata){
+      Serial.println("No metadata available");
+    }
+    else {
+      if(metadata.available()){
+        String data = metadata.readString();
+
+        if((data.length() > 0) && (data.indexOf(",") != -1)){
+          data.trim();
+
+          String oId = data.substring(0,1);
+          String dId = data.substring(2);
+
+          Serial.println(oId+","+dId);
+
+//          deviceId = dId.c_str();
+
+          Serial.printf("Metadata found. OrganizationId - %s\tDeviceId - %s\n", organizationId, deviceId);
+        }
+      }
+    }
   }
 
   httpServer.begin();

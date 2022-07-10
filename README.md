@@ -9,5 +9,4 @@ I will be updating this soon with more information.
 
 The format of the metadata txt file is as follows:-
 
-- Organization Id
-- Device Id
+- Organization Id, Device Id
