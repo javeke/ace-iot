@@ -4,37 +4,41 @@
 #include <StompClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
+#include <ArduinoJson.h>
 
 #include "env.h";
 
 // Variables
 
 // WiFi name and password
-const char* ssid = WIFI_NAME;
-const char* password = PASSWORD;
+String ssid = WIFI_NAME;
+String password = PASSWORD;
 
 // Soft AP name and password
 const char* softAPSSID = "Testing";
 const char* softAPPassword = "Te$ter123";
 
-const char* host = HOST;
-const int port = PORT;
+String host = HOST;
+int port = PORT;
 
-const char* stompUrl = STOMP_URL;
+String stompUrl = STOMP_URL;
 
-const char* organizationId = ORGANIZATION_ID;
-const char* deviceId = DEVICE_ID;
+String organizationId = ORGANIZATION_ID;
+String deviceId = DEVICE_ID;
 
 WebSocketsClient webSocket;
 bool ledState = HIGH;
 unsigned long lastInterval = 0;
 
-Stomp::StompClient stompClient(webSocket, host, port, stompUrl, true);
+Stomp::StompClient stompClient(webSocket, host.c_str(), port, stompUrl.c_str(), true);
 String message = "";
 
 ESP8266WebServer httpServer(80);
 
 bool shouldReset = 0;
+
+String fileMetadata = "";
+StaticJsonDocument<512> secretJsonData;
 
 // Functions
 
@@ -101,7 +105,7 @@ bool connectToWifi(const char* wifiName, const char* wifiPassword){
 
 void handleConnect(Stomp::StompCommand cmd){
   stompClient.sendMessage("/ace/test", "Test string");
-  String destination = "/controlData/organizations/"+ String(organizationId) + "/devices/" + String(deviceId);
+  String destination = "/controlData/organizations/"+ organizationId + "/devices/" + deviceId;
   stompClient.subscribe((char*)destination.c_str(), Stomp::CLIENT, handleControlMessage);
   Serial.println("Connected to STOMP broker");
 }
@@ -118,7 +122,7 @@ void sendMessageAfterInterval(unsigned long timeout) {
   if(millis() > (timeout + lastInterval) && WiFi.isConnected()){
     int paramValue = random(10, 30);
     message = "{\\\"data\\\": {\\\"paramName\\\": \\\"Temperature\\\",\\\"paramValue\\\": "+String(paramValue)+",\\\"createdAt\\\": "+String(lastInterval)+"},\\\"message\\\":\\\"New data from NodeMCU\\\"}";
-    String destination = "/ace/data/organizations/"+ String(organizationId) + "/devices/" + String(deviceId);
+    String destination = "/ace/data/organizations/"+ organizationId + "/devices/" + deviceId;
     stompClient.sendMessage(destination, message);
     lastInterval = millis();
   }
@@ -136,8 +140,7 @@ Stomp::Stomp_Ack_t handleControlMessage(Stomp::StompCommand cmd){
 // HTTP Callbacks
 
 void handleHomeRoute() {
-  String message = String("Welcome to Ace for device ");
-  message.concat(deviceId);
+  String message = "Welcome to Ace for device "+deviceId;
   httpServer.send(200, "text/plain", message);
 }
 
@@ -233,53 +236,134 @@ void handleConfigureRoute(){
     return;
   }
 
+  message = "";
+
   if(httpServer.hasArg("deviceId")){
     for(int i=0; i<args; i++){
       if(httpServer.argName(i).equals("deviceId")){
-        deviceId = httpServer.arg(i).c_str();
-        message = "Updated device Id to" + String(deviceId) + "\n";
+        deviceId = httpServer.arg(i);
+        String deviceMessage = "Updated device Id to" + deviceId + "\n";
 
         File metadata = SPIFFS.open("/metadata.txt", "w+");
 
-        String newData = String(organizationId) + "," + String(deviceId);
+        String newData = organizationId + "," + deviceId;
 
         int written = metadata.print(newData);
 
         if(written == newData.length()){
           Serial.println("Updated the metadata file");
-          message += "Metadata file found and updated\n";
+          deviceMessage += "Metadata file found and updated\n";
         }
         else {
           Serial.println("Failed to update the metadata file");
-          message += "Metadata file update failed\n";
+          deviceMessage += "Metadata file update failed\n";
         }
 
+        message += deviceMessage;
         break;
       }
     }
   }
+
+  if(httpServer.hasArg("organizationId")){
+    for(int i=0; i<args; i++){
+      if(httpServer.argName(i).equals("organizationId")){
+        organizationId = httpServer.arg(i);
+        String orgMessage = "Updated organization Id to" + organizationId + "\n";
+
+        File metadata = SPIFFS.open("/metadata.txt", "w+");
+
+        String newData = organizationId + "," + deviceId;
+
+        int written = metadata.print(newData);
+
+        if(written == newData.length()){
+          Serial.println("Updated the metadata file");
+          orgMessage += "Metadata file found and updated\n";
+        }
+        else {
+          Serial.println("Failed to update the metadata file");
+          orgMessage += "Metadata file update failed\n";
+        }
+        message += orgMessage;
+        break;
+      }
+    }
+  }
+  if(message.length()==0){
+    message = "No configuration changes";
+  }
   httpServer.send(200, "text/plain", message);
 }
-
-// void handleIndexRoute(){
-//   httpServer.send(SPIFFS, )
-// }
 
 
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
   Serial.println();
+
+  Serial.println("Mounting SPIFFS");
+  delay(100);
+  if(!SPIFFS.begin()){
+    Serial.println("Failed to mount SPIFFS");
+  }
+  else {
+    delay(200);
+    Serial.println("Mounted SPIFFS");
+
+    if(SPIFFS.exists("/metadata.txt")){
+      File metadata = SPIFFS.open("/metadata.txt", "r");
+      if(!metadata){
+        Serial.println("No metadata available");
+      }
+      else {
+        if(metadata.available()){
+          fileMetadata = metadata.readString();
+
+          if((fileMetadata.length() > 0) && (fileMetadata.indexOf(",") != -1)){
+            fileMetadata.trim();
+
+            organizationId = fileMetadata.substring(0,1);
+
+            deviceId = fileMetadata.substring(2);
+
+            Serial.printf("Metadata found. OrganizationId - %s\tDeviceId - %s\n", organizationId.c_str(), deviceId.c_str());
+          }
+        }
+        metadata.close();
+      }
+    }
+
+    if(SPIFFS.exists("/secrets.json")){
+      File secretsFile = SPIFFS.open("/secrets.json", "r");
+
+      if(!secretsFile) {
+        Serial.println("No secrets file found");
+      }
+      else {
+        Serial.println("Secrets file found");
+        deserializeJson(secretJsonData, secretsFile);
+
+        ssid = String((const char*)(secretJsonData["ssid"]));
+        password = String((const char*)secretJsonData["password"]);
+//        host = String((const char*)secretJsonData["serverHost"]);
+        port = (int)secretJsonData["serverPort"];
+
+        Serial.println(host);
+        secretsFile.close();
+      }
+    }
+  }
   
   Serial.println("Setting up AP");
   WiFi.mode(WIFI_AP_STA);
 
   setUpSoftAP(softAPSSID, softAPPassword);
     
-  bool isConnected = connectToWifi(ssid, password);
+  bool isConnected = connectToWifi(ssid.c_str(), password.c_str());
 
   if(!isConnected) {
-    Serial.printf("Failed to connect to %s\n", ssid);
+    Serial.printf("Failed to connect to %s\n", ssid.c_str());
   }
 
   stompClient.onConnect(handleConnect);
@@ -291,17 +375,6 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, ledState);
 
-  Serial.println("Mounting SPIFFS");
-  
-  delay(100);
-  if(!SPIFFS.begin()){
-    Serial.println("Failed to mount SPIFFS");
-  }
-  else {
-    delay(200);
-    Serial.println("Mounted SPIFFS");
-  }
-
   Serial.println("Setting up web server");
 
   httpServer.on("/home", handleHomeRoute);
@@ -312,31 +385,6 @@ void setup() {
 
   if(MDNS.begin(softAPSSID)){
     Serial.println("MDNS responder started");
-  }
-
-  if(SPIFFS.exists("/metadata.txt")){
-    File metadata = SPIFFS.open("/metadata.txt", "r");
-    if(!metadata){
-      Serial.println("No metadata available");
-    }
-    else {
-      if(metadata.available()){
-        String data = metadata.readString();
-
-        if((data.length() > 0) && (data.indexOf(",") != -1)){
-          data.trim();
-
-          String oId = data.substring(0,1);
-          String dId = data.substring(2);
-
-          Serial.println(oId+","+dId);
-
-//          deviceId = dId.c_str();
-
-          Serial.printf("Metadata found. OrganizationId - %s\tDeviceId - %s\n", organizationId, deviceId);
-        }
-      }
-    }
   }
 
   httpServer.begin();

@@ -4,23 +4,50 @@
   <meta charset="UTF-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
+  <link type="text/css" rel="stylesheet" href="style.css">
+  <link rel="stylesheet" type="text/css" href="dashboard.css">
   <title>Ace IoT Dashboard</title>
 </head>
 <body>
   <h1>Ace IoT Dashboard</h1>
   <main>
-    <form action="/configure">
+    <form action="/configure" class="configure-form">
       <div>
         <label for="organizationId">Organization Id</label>
-        <input id="organizationId" name="organizationId" type="text" placeholder="Organization Id" required>
+        <input id="organizationId" name="organizationId" type="text" placeholder="organization id" required>
       </div>
       <button type="submit">Update</button>
     </form>
 
-    <form action="/configure">
+    <form action="/configure" class="configure-form">
       <div>
         <label for="deviceId">Device Id</label>
-        <input id="deviceId" name="deviceId" type="text" placeholder="Device Id" required>
+        <input id="deviceId" name="deviceId" type="text" placeholder="device id" required>
+      </div>
+      <button type="submit">Update</button>
+    </form>
+
+    <form action="/configure" class="configure-form">
+      <div>
+        <label for="server">Server Name</label>
+        <input id="server" name="server" type="text" placeholder="server name" required>
+      </div>
+      <button type="submit">Update</button>
+    </form>
+
+    <form action="/configure" class="configure-form">
+      <div>
+        <label for="port">Server Port</label>
+        <input id="port" name="port" type="text" placeholder="server port" required>
+      </div>
+      <button type="submit">Update</button>
+    </form>
+
+    <form action="/configure" class="configure-form">
+      <div>
+        <label for="socket-url">Socket Url</label>
+        <input id="socket-url" name="socket-url" type="text" placeholder="socket url" required>
       </div>
       <button type="submit">Update</button>
     </form>
