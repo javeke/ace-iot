@@ -11,17 +11,17 @@
 // Variables
 
 // WiFi name and password
-const char* ssid = WIFI_NAME;
-const char* password = PASSWORD;
+String ssid = WIFI_NAME;
+String password = PASSWORD;
 
 // Soft AP name and password
 const char* softAPSSID = "Testing";
 const char* softAPPassword = "Te$ter123";
 
-const char* host = HOST;
-const int port = PORT;
+String host = HOST;
+int port = PORT;
 
-const char* stompUrl = STOMP_URL;
+String stompUrl = STOMP_URL;
 
 String organizationId = ORGANIZATION_ID;
 String deviceId = DEVICE_ID;
@@ -30,7 +30,7 @@ WebSocketsClient webSocket;
 bool ledState = HIGH;
 unsigned long lastInterval = 0;
 
-Stomp::StompClient stompClient(webSocket, host, port, stompUrl, true);
+Stomp::StompClient stompClient(webSocket, host.c_str(), port, stompUrl.c_str(), true);
 String message = "";
 
 ESP8266WebServer httpServer(80);
@@ -301,16 +301,69 @@ void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
   Serial.println();
+
+  Serial.println("Mounting SPIFFS");
+  delay(100);
+  if(!SPIFFS.begin()){
+    Serial.println("Failed to mount SPIFFS");
+  }
+  else {
+    delay(200);
+    Serial.println("Mounted SPIFFS");
+
+    if(SPIFFS.exists("/metadata.txt")){
+      File metadata = SPIFFS.open("/metadata.txt", "r");
+      if(!metadata){
+        Serial.println("No metadata available");
+      }
+      else {
+        if(metadata.available()){
+          fileMetadata = metadata.readString();
+
+          if((fileMetadata.length() > 0) && (fileMetadata.indexOf(",") != -1)){
+            fileMetadata.trim();
+
+            organizationId = fileMetadata.substring(0,1);
+
+            deviceId = fileMetadata.substring(2);
+
+            Serial.printf("Metadata found. OrganizationId - %s\tDeviceId - %s\n", organizationId.c_str(), deviceId.c_str());
+          }
+        }
+        metadata.close();
+      }
+    }
+
+    if(SPIFFS.exists("/secrets.json")){
+      File secretsFile = SPIFFS.open("/secrets.json", "r");
+
+      if(!secretsFile) {
+        Serial.println("No secrets file found");
+      }
+      else {
+        Serial.println("Secrets file found");
+        deserializeJson(secretJsonData, secretsFile);
+
+        ssid = String((const char*)(secretJsonData["ssid"]));
+        password = String((const char*)secretJsonData["password"]);
+//        host = String((const char*)secretJsonData["serverHost"]);
+        port = (int)secretJsonData["serverPort"];
+
+        Serial.println(host);
+        secretsFile.close();
+      }
+    }
+  }
   
   Serial.println("Setting up AP");
   WiFi.mode(WIFI_AP_STA);
 
   setUpSoftAP(softAPSSID, softAPPassword);
     
-  bool isConnected = connectToWifi(ssid, password);
+  bool isConnected = connectToWifi(ssid.c_str(), password.c_str());
 
   if(!isConnected) {
-    Serial.printf("Failed to connect to %s\n", ssid);
+    Serial.printf("Failed to connect to %s\n", ssid.c_str());
   }
 
   stompClient.onConnect(handleConnect);
@@ -321,17 +374,6 @@ void setup() {
 
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, ledState);
-
-  Serial.println("Mounting SPIFFS");
-  
-  delay(100);
-  if(!SPIFFS.begin()){
-    Serial.println("Failed to mount SPIFFS");
-  }
-  else {
-    delay(200);
-    Serial.println("Mounted SPIFFS");
-  }
 
   Serial.println("Setting up web server");
 
@@ -344,48 +386,6 @@ void setup() {
   if(MDNS.begin(softAPSSID)){
     Serial.println("MDNS responder started");
   }
-
-  if(SPIFFS.exists("/metadata.txt")){
-    File metadata = SPIFFS.open("/metadata.txt", "r");
-    if(!metadata){
-      Serial.println("No metadata available");
-    }
-    else {
-      if(metadata.available()){
-        fileMetadata = metadata.readString();
-
-        if((fileMetadata.length() > 0) && (fileMetadata.indexOf(",") != -1)){
-          fileMetadata.trim();
-
-          organizationId = fileMetadata.substring(0,1);
-
-          deviceId = fileMetadata.substring(2);
-
-          Serial.printf("Metadata found. OrganizationId - %s\tDeviceId - %s\n", organizationId.c_str(), deviceId.c_str());
-        }
-      }
-      metadata.close();
-    }
-  }
-
-  if(SPIFFS.exists("/secrets.json")){
-    File secretsFile = SPIFFS.open("/secrets.json", "r");
-
-    if(!secretsFile) {
-      Serial.println("No secrets file found");
-    }
-    else {
-      deserializeJson(secretJsonData, secretsFile);
-
-      Serial.println((const char*)(secretJsonData["ssid"]));
-      Serial.println((const char*)secretJsonData["password"]);
-      Serial.println((const char*)secretJsonData["serverHost"]);
-      Serial.println((int)secretJsonData["serverPort"]);
-      Serial.println((const char*)secretJsonData["socketUrl"]);
-      secretsFile.close();
-    }
-  }
-
 
   httpServer.begin();
 }
