@@ -30,7 +30,7 @@ WebSocketsClient webSocket;
 bool ledState = HIGH;
 unsigned long lastInterval = 0;
 
-Stomp::StompClient stompClient(webSocket, host.c_str(), port, stompUrl.c_str(), true);
+Stomp::StompClient* stompClient = new Stomp::StompClient(webSocket, host.c_str(), port, stompUrl.c_str(), true);
 String message = "";
 
 ESP8266WebServer httpServer(80);
@@ -104,9 +104,9 @@ bool connectToWifi(const char* wifiName, const char* wifiPassword){
 
 
 void handleConnect(Stomp::StompCommand cmd){
-  stompClient.sendMessage("/ace/test", "Test string");
+  stompClient->sendMessage("/ace/test", "Test string");
   String destination = "/controlData/organizations/"+ organizationId + "/devices/" + deviceId;
-  stompClient.subscribe((char*)destination.c_str(), Stomp::CLIENT, handleControlMessage);
+  stompClient->subscribe((char*)destination.c_str(), Stomp::CLIENT, handleControlMessage);
   Serial.println("Connected to STOMP broker");
 }
 
@@ -123,7 +123,7 @@ void sendMessageAfterInterval(unsigned long timeout) {
     int paramValue = random(10, 30);
     message = "{\\\"data\\\": {\\\"paramName\\\": \\\"Temperature\\\",\\\"paramValue\\\": "+String(paramValue)+",\\\"createdAt\\\": "+String(lastInterval)+"},\\\"message\\\":\\\"New data from NodeMCU\\\"}";
     String destination = "/ace/data/organizations/"+ organizationId + "/devices/" + deviceId;
-    stompClient.sendMessage(destination, message);
+    stompClient->sendMessage(destination, message);
     lastInterval = millis();
   }
 }
@@ -290,6 +290,74 @@ void handleConfigureRoute(){
       }
     }
   }
+
+  if(httpServer.hasArg("server")){
+    for(int i=0; i<args; i++){
+      if(httpServer.argName(i).equals("server")){
+        host = httpServer.arg(i);
+        String hostMessage = "Updated host to" + host + "\n";
+
+        File secretsFile = SPIFFS.open("/secrets.json", "w+");
+
+        deserializeJson(secretJsonData, secretsFile);
+
+        secretJsonData["serverHost"] = host.c_str();
+        port = (int)secretJsonData["serverPort"];
+        int written = serializeJson(secretJsonData, secretsFile);
+        secretsFile.close();
+
+        delete stompClient;
+        stompClient = new Stomp::StompClient(webSocket, host.c_str(), port, stompUrl.c_str(), true);
+
+        stompClient->onConnect(handleConnect);
+        stompClient->onError(handleError);
+      
+        stompClient->begin();
+        Serial.println("Reinitialize WS connection");
+
+        Serial.println("Updated the host in the secrets file");
+        hostMessage += "Secrets file found and updated with host\n";
+        message += hostMessage;
+        break;
+      }
+    }
+  }
+
+  if(httpServer.hasArg("port")){
+    for(int i=0; i<args; i++){
+      if(httpServer.argName(i).equals("port")){
+        String portArg = httpServer.arg(i);
+        String portMessage = "Updated port to" + portArg + "\n";
+
+        File secretsFile = SPIFFS.open("/secrets.json", "w+");
+
+        deserializeJson(secretJsonData, secretsFile);
+
+        port = atoi(portArg.c_str());
+
+        secretJsonData["serverPort"] = port;
+        host = (int)secretJsonData["serverHost"];
+        
+        int written = serializeJson(secretJsonData, secretsFile);
+        secretsFile.close();
+
+        delete stompClient;
+        stompClient = new Stomp::StompClient(webSocket, host.c_str(), port, stompUrl.c_str(), true);
+
+        stompClient->onConnect(handleConnect);
+        stompClient->onError(handleError);
+      
+        stompClient->begin();
+        Serial.println("Reinitialize WS connection");
+
+        Serial.println("Updated the port in the secrets file");
+        portMessage += "Secrets file found and updated with port\n";
+        message += portMessage;
+        break;
+      }
+    }
+  }
+
   if(message.length()==0){
     message = "No configuration changes";
   }
@@ -346,8 +414,11 @@ void setup() {
 
         ssid = String((const char*)(secretJsonData["ssid"]));
         password = String((const char*)secretJsonData["password"]);
-//        host = String((const char*)secretJsonData["serverHost"]);
+        host = String((const char*)secretJsonData["serverHost"]);
         port = (int)secretJsonData["serverPort"];
+
+        delete stompClient;
+        stompClient = new Stomp::StompClient(webSocket, host.c_str(), port, stompUrl.c_str(), true);
 
         Serial.println(host);
         secretsFile.close();
@@ -366,10 +437,10 @@ void setup() {
     Serial.printf("Failed to connect to %s\n", ssid.c_str());
   }
 
-  stompClient.onConnect(handleConnect);
-  stompClient.onError(handleError);
+  stompClient->onConnect(handleConnect);
+  stompClient->onError(handleError);
 
-  stompClient.begin();
+  stompClient->begin();
   Serial.println("Initialize WS connection");
 
   pinMode(LED_BUILTIN, OUTPUT);
