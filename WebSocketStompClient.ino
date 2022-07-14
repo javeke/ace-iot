@@ -297,13 +297,16 @@ void handleConfigureRoute(){
         host = httpServer.arg(i);
         String hostMessage = "Updated host to" + host + "\n";
 
-        File secretsFile = SPIFFS.open("/secrets.json", "w+");
+        File secretsFile = SPIFFS.open("/secrets.json", "r+");
 
         deserializeJson(secretJsonData, secretsFile);
-
         secretJsonData["serverHost"] = host.c_str();
         port = (int)secretJsonData["serverPort"];
-        int written = serializeJson(secretJsonData, secretsFile);
+        serializeJson(secretJsonData, secretsFile);
+        secretsFile.close();
+
+        secretsFile = SPIFFS.open("/secrets.json", "w+");
+        serializeJson(secretJsonData, secretsFile);
         secretsFile.close();
 
         delete stompClient;
@@ -329,16 +332,20 @@ void handleConfigureRoute(){
         String portArg = httpServer.arg(i);
         String portMessage = "Updated port to" + portArg + "\n";
 
-        File secretsFile = SPIFFS.open("/secrets.json", "w+");
+        File secretsFile = SPIFFS.open("/secrets.json", "r+");
 
         deserializeJson(secretJsonData, secretsFile);
 
         port = atoi(portArg.c_str());
 
         secretJsonData["serverPort"] = port;
-        host = (int)secretJsonData["serverHost"];
+        host = String((const char*)secretJsonData["serverHost"]);
         
-        int written = serializeJson(secretJsonData, secretsFile);
+        serializeJson(secretJsonData, secretsFile);
+        secretsFile.close();
+
+        secretsFile = SPIFFS.open("/secrets.json", "w+");
+        serializeJson(secretJsonData, secretsFile);
         secretsFile.close();
 
         delete stompClient;
@@ -405,7 +412,7 @@ void setup() {
     if(SPIFFS.exists("/secrets.json")){
       File secretsFile = SPIFFS.open("/secrets.json", "r");
 
-      if(!secretsFile) {
+      if(!secretsFile) { 
         Serial.println("No secrets file found");
       }
       else {
@@ -421,6 +428,10 @@ void setup() {
         stompClient = new Stomp::StompClient(webSocket, host.c_str(), port, stompUrl.c_str(), true);
 
         Serial.println(host);
+        Serial.println(ssid);
+        Serial.println(password);
+        Serial.println(port);
+
         secretsFile.close();
       }
     }
