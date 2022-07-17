@@ -106,22 +106,6 @@ bool connectToWifi(const char* wifiName, const char* wifiPassword){
   return true;
 }
 
-
-void handleConnect(Stomp::StompCommand cmd){
-  stompClient->sendMessage("/ace/test", "Test string");
-  String destination = "/controlData/organizations/"+ organizationId + "/devices/" + deviceId;
-  dataSubscription = stompClient->subscribe((char*)destination.c_str(), Stomp::CLIENT, handleControlMessage);
-  Serial.println("Connected to STOMP broker");
-}
-
-void handleError(const Stomp::StompCommand cmd){
-  Serial.println("ERROR: "+ cmd.body);
-}
-
-void handleDisconnect(Stomp::StompCommand cmd){
-  Serial.println("Disconnected");
-}
-
 void sendMessageAfterInterval(unsigned long timeout) {
   if(millis() > (timeout + lastInterval) && WiFi.isConnected()){
     int paramValue = random(10, 30);
@@ -130,15 +114,6 @@ void sendMessageAfterInterval(unsigned long timeout) {
     stompClient->sendMessage(destination, message);
     lastInterval = millis();
   }
-}
-
-Stomp::Stomp_Ack_t handleControlMessage(Stomp::StompCommand cmd){
-  Serial.println("Received control");
-  ledState ^=1;
-  Serial.print("Led state: ");
-  Serial.println(ledState);
-  digitalWrite(LED_BUILTIN, ledState);
-  return Stomp::CONTINUE;
 }
 
 void getDeviceDataFromServer(){
@@ -163,6 +138,46 @@ void getDeviceDataFromServer(){
     }
   }
 }
+
+
+
+
+
+// Stomp Handlers
+
+Stomp::Stomp_Ack_t handleControlMessage(Stomp::StompCommand cmd){
+  Serial.println("Received control");
+  ledState ^=1;
+  Serial.print("Led state: ");
+  Serial.println(ledState);
+  digitalWrite(LED_BUILTIN, ledState);
+  return Stomp::CONTINUE;
+}
+
+void handleConnect(Stomp::StompCommand cmd){
+  stompClient->sendMessage("/ace/test", "Test string");
+  String destination = "/controlData/organizations/"+ organizationId + "/devices/" + deviceId;
+  dataSubscription = stompClient->subscribe((char*)destination.c_str(), Stomp::CLIENT, handleControlMessage);
+  Serial.println("Connected to STOMP broker");
+}
+
+void handleDisconnect(Stomp::StompCommand cmd){
+  Serial.println("Disconnected");
+}
+
+
+void handleError(const Stomp::StompCommand cmd){
+  Serial.println("ERROR: "+ cmd.body);
+}
+
+void setUpStompHandlers(){
+  stompClient->onConnect(handleConnect);
+  stompClient->onError(handleError);
+  stompClient->onDisconnect(handleDisconnect);
+}
+
+
+
 
 // HTTP Callbacks
 
@@ -412,6 +427,17 @@ void handleConfigureRoute(){
 }
 
 
+void setUpServerRoutes(){
+  Serial.println("Setting up web server");
+
+  httpServer.on("/home", handleHomeRoute);
+  httpServer.on("/state", handleStateRoute);
+  httpServer.on("/connect", handleConnectRoute);
+  httpServer.on("/configure", handleConfigureRoute);
+  httpServer.serveStatic("/", SPIFFS, "/", "no-cache");
+}
+
+
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
@@ -494,19 +520,12 @@ void setup() {
     getDeviceDataFromServer();
   }
 
-  stompClient->onConnect(handleConnect);
-  stompClient->onError(handleError);
+  setUpStompHandlers();
 
   stompClient->begin();
   Serial.println("Initialize WS connection");
 
-  Serial.println("Setting up web server");
-
-  httpServer.on("/home", handleHomeRoute);
-  httpServer.on("/state", handleStateRoute);
-  httpServer.on("/connect", handleConnectRoute);
-  httpServer.on("/configure", handleConfigureRoute);
-  httpServer.serveStatic("/", SPIFFS, "/", "no-cache");
+  setUpServerRoutes();
 
   if(MDNS.begin(softAPSSID)){
     Serial.println("MDNS responder started");
