@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
+#include <WiFiClient.h>
+#include <ESP8266HTTPClient.h>
 #include <WebSocketsClient.h>
 #include <StompClient.h>
 #include <ESP8266WebServer.h>
@@ -22,6 +24,8 @@ String host = HOST;
 int port = PORT;
 
 String stompUrl = STOMP_URL;
+
+int dataSubscription = 0;
 
 String organizationId = ORGANIZATION_ID;
 String deviceId = DEVICE_ID;
@@ -102,22 +106,6 @@ bool connectToWifi(const char* wifiName, const char* wifiPassword){
   return true;
 }
 
-
-void handleConnect(Stomp::StompCommand cmd){
-  stompClient->sendMessage("/ace/test", "Test string");
-  String destination = "/controlData/organizations/"+ organizationId + "/devices/" + deviceId;
-  stompClient->subscribe((char*)destination.c_str(), Stomp::CLIENT, handleControlMessage);
-  Serial.println("Connected to STOMP broker");
-}
-
-void handleError(const Stomp::StompCommand cmd){
-  Serial.println("ERROR: "+ cmd.body);
-}
-
-void handleDisconnect(Stomp::StompCommand cmd){
-  Serial.println("Disconnected");
-}
-
 void sendMessageAfterInterval(unsigned long timeout) {
   if(millis() > (timeout + lastInterval) && WiFi.isConnected()){
     int paramValue = random(10, 30);
@@ -128,6 +116,35 @@ void sendMessageAfterInterval(unsigned long timeout) {
   }
 }
 
+void getDeviceDataFromServer(){
+  WiFiClient wifiClient;
+  HTTPClient httpClient;
+  Serial.println("Fetching device data from server");
+  if(httpClient.begin(wifiClient, "http://"+host+":"+port+"/api/organizations/"+organizationId+"/devices/"+deviceId+"/info")){
+    int responseCode = httpClient.GET();
+
+    if(responseCode < 0){
+      Serial.println("Response Code: " + responseCode);
+      Serial.println("Failed to get device data from server");
+    }
+    else {
+      if(responseCode == HTTP_CODE_OK){
+        String responseBody = httpClient.getString();
+        StaticJsonDocument<1024> jsonBody;
+        deserializeJson(jsonBody, responseBody);
+        ledState = (bool)jsonBody["enabled"];
+        digitalWrite(BUILTIN_LED, !ledState);
+      }
+    }
+  }
+}
+
+
+
+
+
+// Stomp Handlers
+
 Stomp::Stomp_Ack_t handleControlMessage(Stomp::StompCommand cmd){
   Serial.println("Received control");
   ledState ^=1;
@@ -136,6 +153,31 @@ Stomp::Stomp_Ack_t handleControlMessage(Stomp::StompCommand cmd){
   digitalWrite(LED_BUILTIN, ledState);
   return Stomp::CONTINUE;
 }
+
+void handleConnect(Stomp::StompCommand cmd){
+  stompClient->sendMessage("/ace/test", "Test string");
+  String destination = "/controlData/organizations/"+ organizationId + "/devices/" + deviceId;
+  dataSubscription = stompClient->subscribe((char*)destination.c_str(), Stomp::CLIENT, handleControlMessage);
+  Serial.println("Connected to STOMP broker");
+}
+
+void handleDisconnect(Stomp::StompCommand cmd){
+  Serial.println("Disconnected");
+}
+
+
+void handleError(const Stomp::StompCommand cmd){
+  Serial.println("ERROR: "+ cmd.body);
+}
+
+void setUpStompHandlers(){
+  stompClient->onConnect(handleConnect);
+  stompClient->onError(handleError);
+  stompClient->onDisconnect(handleDisconnect);
+}
+
+
+
 
 // HTTP Callbacks
 
@@ -251,6 +293,11 @@ void handleConfigureRoute(){
         int written = metadata.print(newData);
 
         if(written == newData.length()){
+
+          String destination = "/controlData/organizations/"+ organizationId + "/devices/" + deviceId;
+          stompClient->unsubscribe(dataSubscription);
+          dataSubscription = stompClient->subscribe((char*)destination.c_str(), Stomp::CLIENT, handleControlMessage);
+
           Serial.println("Updated the metadata file");
           deviceMessage += "Metadata file found and updated\n";
         }
@@ -278,6 +325,11 @@ void handleConfigureRoute(){
         int written = metadata.print(newData);
 
         if(written == newData.length()){
+
+          String destination = "/controlData/organizations/"+ organizationId + "/devices/" + deviceId;
+          stompClient->unsubscribe(dataSubscription);
+          dataSubscription = stompClient->subscribe((char*)destination.c_str(), Stomp::CLIENT, handleControlMessage);
+          
           Serial.println("Updated the metadata file");
           orgMessage += "Metadata file found and updated\n";
         }
@@ -368,7 +420,21 @@ void handleConfigureRoute(){
   if(message.length()==0){
     message = "No configuration changes";
   }
+  else {
+    getDeviceDataFromServer();
+  }
   httpServer.send(200, "text/plain", message);
+}
+
+
+void setUpServerRoutes(){
+  Serial.println("Setting up web server");
+
+  httpServer.on("/home", handleHomeRoute);
+  httpServer.on("/state", handleStateRoute);
+  httpServer.on("/connect", handleConnectRoute);
+  httpServer.on("/configure", handleConfigureRoute);
+  httpServer.serveStatic("/", SPIFFS, "/", "no-cache");
 }
 
 
@@ -376,6 +442,9 @@ void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
   Serial.println();
+
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, ledState);
 
   Serial.println("Mounting SPIFFS");
   delay(100);
@@ -447,23 +516,16 @@ void setup() {
   if(!isConnected) {
     Serial.printf("Failed to connect to %s\n", ssid.c_str());
   }
+  else {
+    getDeviceDataFromServer();
+  }
 
-  stompClient->onConnect(handleConnect);
-  stompClient->onError(handleError);
+  setUpStompHandlers();
 
   stompClient->begin();
   Serial.println("Initialize WS connection");
 
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, ledState);
-
-  Serial.println("Setting up web server");
-
-  httpServer.on("/home", handleHomeRoute);
-  httpServer.on("/state", handleStateRoute);
-  httpServer.on("/connect", handleConnectRoute);
-  httpServer.on("/configure", handleConfigureRoute);
-  httpServer.serveStatic("/", SPIFFS, "/", "no-cache");
+  setUpServerRoutes();
 
   if(MDNS.begin(softAPSSID)){
     Serial.println("MDNS responder started");
