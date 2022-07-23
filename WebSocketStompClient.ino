@@ -34,7 +34,9 @@ WebSocketsClient webSocket;
 bool ledState = HIGH;
 unsigned long lastInterval = 0;
 
-Stomp::StompClient* stompClient = new Stomp::StompClient(webSocket, host.c_str(), port, stompUrl.c_str(), true);
+
+bool IS_SOCKJS = true;
+Stomp::StompClient* stompClient = new Stomp::StompClient(webSocket, host.c_str(), port, stompUrl.c_str(), IS_SOCKJS);
 String message = "";
 
 ESP8266WebServer httpServer(80);
@@ -120,7 +122,7 @@ void getDeviceDataFromServer(){
   WiFiClient wifiClient;
   HTTPClient httpClient;
   Serial.println("Fetching device data from server");
-  if(httpClient.begin(wifiClient, "http://"+host+":"+port+"/api/organizations/"+organizationId+"/devices/"+deviceId+"/info")){
+  if(httpClient.begin(wifiClient, "http://"+host+":"+String(port)+"/api/organizations/"+organizationId+"/devices/"+deviceId+"/info")){
     int responseCode = httpClient.GET();
 
     if(responseCode < 0){
@@ -139,9 +141,51 @@ void getDeviceDataFromServer(){
   }
 }
 
+void loadConfigDataFromFS(){
+  if(SPIFFS.exists("/metadata.txt")){
+    File metadata = SPIFFS.open("/metadata.txt", "r");
+    if(!metadata){
+      Serial.println("No metadata available");
+    }
+    else {
+      if(metadata.available()){
+        fileMetadata = metadata.readString();
 
+        if((fileMetadata.length() > 0) && (fileMetadata.indexOf(",") != -1)){
+          fileMetadata.trim();
 
+          organizationId = fileMetadata.substring(0,1);
 
+          deviceId = fileMetadata.substring(2);
+
+          Serial.printf("Metadata found. OrganizationId - %s\tDeviceId - %s\n", organizationId.c_str(), deviceId.c_str());
+        }
+      }
+      metadata.close();
+    }
+  }
+
+  if(SPIFFS.exists("/secrets.json")){
+    File secretsFile = SPIFFS.open("/secrets.json", "r");
+
+    if(!secretsFile) { 
+      Serial.println("No secrets file found");
+    }
+    else {
+      Serial.println("Secrets file found");
+      deserializeJson(secretJsonData, secretsFile);
+
+      ssid = String((const char*)(secretJsonData["ssid"]));
+      password = String((const char*)secretJsonData["password"]);
+      host = String((const char*)secretJsonData["serverHost"]);
+      port = (int)secretJsonData["serverPort"];
+
+      delete stompClient;
+      stompClient = new Stomp::StompClient(webSocket, host.c_str(), port, stompUrl.c_str(), IS_SOCKJS);
+      secretsFile.close();
+    }
+  }
+}
 
 // Stomp Handlers
 
@@ -362,7 +406,7 @@ void handleConfigureRoute(){
         secretsFile.close();
 
         delete stompClient;
-        stompClient = new Stomp::StompClient(webSocket, host.c_str(), port, stompUrl.c_str(), true);
+        stompClient = new Stomp::StompClient(webSocket, host.c_str(), port, stompUrl.c_str(), IS_SOCKJS);
 
         stompClient->onConnect(handleConnect);
         stompClient->onError(handleError);
@@ -401,7 +445,7 @@ void handleConfigureRoute(){
         secretsFile.close();
 
         delete stompClient;
-        stompClient = new Stomp::StompClient(webSocket, host.c_str(), port, stompUrl.c_str(), true);
+        stompClient = new Stomp::StompClient(webSocket, host.c_str(), port, stompUrl.c_str(), IS_SOCKJS);
 
         stompClient->onConnect(handleConnect);
         stompClient->onError(handleError);
@@ -454,56 +498,7 @@ void setup() {
   else {
     delay(200);
     Serial.println("Mounted SPIFFS");
-
-    if(SPIFFS.exists("/metadata.txt")){
-      File metadata = SPIFFS.open("/metadata.txt", "r");
-      if(!metadata){
-        Serial.println("No metadata available");
-      }
-      else {
-        if(metadata.available()){
-          fileMetadata = metadata.readString();
-
-          if((fileMetadata.length() > 0) && (fileMetadata.indexOf(",") != -1)){
-            fileMetadata.trim();
-
-            organizationId = fileMetadata.substring(0,1);
-
-            deviceId = fileMetadata.substring(2);
-
-            Serial.printf("Metadata found. OrganizationId - %s\tDeviceId - %s\n", organizationId.c_str(), deviceId.c_str());
-          }
-        }
-        metadata.close();
-      }
-    }
-
-    if(SPIFFS.exists("/secrets.json")){
-      File secretsFile = SPIFFS.open("/secrets.json", "r");
-
-      if(!secretsFile) { 
-        Serial.println("No secrets file found");
-      }
-      else {
-        Serial.println("Secrets file found");
-        deserializeJson(secretJsonData, secretsFile);
-
-        ssid = String((const char*)(secretJsonData["ssid"]));
-        password = String((const char*)secretJsonData["password"]);
-        host = String((const char*)secretJsonData["serverHost"]);
-        port = (int)secretJsonData["serverPort"];
-
-        delete stompClient;
-        stompClient = new Stomp::StompClient(webSocket, host.c_str(), port, stompUrl.c_str(), true);
-
-        Serial.println(host);
-        Serial.println(ssid);
-        Serial.println(password);
-        Serial.println(port);
-
-        secretsFile.close();
-      }
-    }
+    loadConfigDataFromFS();
   }
   
   Serial.println("Setting up AP");
