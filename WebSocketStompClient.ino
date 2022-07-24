@@ -8,7 +8,18 @@
 #include <ESP8266mDNS.h>
 #include <ArduinoJson.h>
 
+// For OLED Display
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
 #include "env.h";
+
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 32 // OLED display height, in pixels
+#define OLED_RESET     -1 // Reset pin # 
+#define SCREEN_ADDRESS 0x3C
 
 // Variables
 
@@ -45,6 +56,8 @@ bool shouldReset = 0;
 
 String fileMetadata = "";
 StaticJsonDocument<512> secretJsonData;
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // Functions
 
@@ -115,6 +128,7 @@ void sendMessageAfterInterval(unsigned long timeout) {
     String destination = "/ace/data/organizations/"+ organizationId + "/devices/" + deviceId;
     stompClient->sendMessage(destination, message);
     lastInterval = millis();
+    displayMessage("Sent temperature of "+String(paramValue)+" to server", 1);
   }
 }
 
@@ -187,6 +201,16 @@ void loadConfigDataFromFS(){
   }
 }
 
+void displayMessage(String message, int delayTime){
+  display.clearDisplay();
+  display.setCursor(0,5);
+  display.println(message);
+  display.display();
+  Serial.println(message);
+  delay(delayTime);
+}
+
+
 // Stomp Handlers
 
 Stomp::Stomp_Ack_t handleControlMessage(Stomp::StompCommand cmd){
@@ -195,6 +219,7 @@ Stomp::Stomp_Ack_t handleControlMessage(Stomp::StompCommand cmd){
   Serial.print("Led state: ");
   Serial.println(ledState);
   digitalWrite(LED_BUILTIN, ledState);
+  displayMessage("Toggle LED state", 100);
   return Stomp::CONTINUE;
 }
 
@@ -202,7 +227,7 @@ void handleConnect(Stomp::StompCommand cmd){
   stompClient->sendMessage("/ace/test", "Test string");
   String destination = "/controlData/organizations/"+ organizationId + "/devices/" + deviceId;
   dataSubscription = stompClient->subscribe((char*)destination.c_str(), Stomp::CLIENT, handleControlMessage);
-  Serial.println("Connected to STOMP broker");
+  displayMessage("Connected to STOMP broker", 1000);
 }
 
 void handleDisconnect(Stomp::StompCommand cmd){
@@ -470,7 +495,6 @@ void handleConfigureRoute(){
   httpServer.send(200, "text/plain", message);
 }
 
-
 void setUpServerRoutes(){
   Serial.println("Setting up web server");
 
@@ -490,18 +514,29 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, ledState);
 
-  Serial.println("Mounting SPIFFS");
-  delay(100);
+  // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    while(1); // Don't proceed, loop forever
+  }
+  
+  display.setTextSize(2);             // Normal 1:1 pixel scale
+  display.setTextColor(SSD1306_WHITE);   
+
+  displayMessage("ACE Device", 2000);           
+  
+  display.setTextSize(1);
+  displayMessage("Mounting SPIFFS", 1000);
+
   if(!SPIFFS.begin()){
-    Serial.println("Failed to mount SPIFFS");
+    displayMessage("Failed to mount SPIFFS", 1000);
   }
   else {
-    delay(200);
-    Serial.println("Mounted SPIFFS");
+    displayMessage("Mounted SPIFFS", 1000);
     loadConfigDataFromFS();
   }
   
-  Serial.println("Setting up AP");
+  displayMessage("Setting up AP", 1000);
   WiFi.mode(WIFI_AP_STA);
 
   setUpSoftAP(softAPSSID, softAPPassword);
@@ -518,12 +553,12 @@ void setup() {
   setUpStompHandlers();
 
   stompClient->begin();
-  Serial.println("Initialize WS connection");
+  displayMessage("Initialize WS connection", 1000);
 
   setUpServerRoutes();
 
   if(MDNS.begin(softAPSSID)){
-    Serial.println("MDNS responder started");
+    displayMessage("MDNS responder started", 1000);
   }
 
   httpServer.begin();
