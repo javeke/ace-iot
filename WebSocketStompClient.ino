@@ -14,12 +14,25 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+// For MPU Sensor
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
+
 #include "env.h";
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 32 // OLED display height, in pixels
 #define OLED_RESET     -1 // Reset pin # 
 #define SCREEN_ADDRESS 0x3C
+
+
+#define INITIAL_SCREEN_TOOLBAR "Temp:30*C    On"
+#define INITIAL_SCREEN_BODY "Initializing"
+
+#define HEALTH_CHECK_PIN 14
+
+#define PUSH_DATA_TIMEOUT 2000
+#define MPU_TIMEOUT 100
 
 // Variables
 
@@ -40,6 +53,7 @@ int dataSubscription = 0;
 
 String organizationId = ORGANIZATION_ID;
 String deviceId = DEVICE_ID;
+String deviceName = "";
 
 WebSocketsClient webSocket;
 bool ledState = HIGH;
@@ -58,6 +72,13 @@ String fileMetadata = "";
 StaticJsonDocument<512> secretJsonData;
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+String screenToolbar = INITIAL_SCREEN_TOOLBAR;
+String screenBody = INITIAL_SCREEN_BODY;
+
+Adafruit_MPU6050 mpu;
+sensors_event_t accel, gyro, temp;
+int temperature = 0;
+int mpuInterval = 0; 
 
 // Functions
 
@@ -121,17 +142,6 @@ bool connectToWifi(const char* wifiName, const char* wifiPassword){
   return true;
 }
 
-void sendMessageAfterInterval(unsigned long timeout) {
-  if(millis() > (timeout + lastInterval) && WiFi.isConnected()){
-    int paramValue = random(10, 30);
-    message = "{\\\"data\\\": {\\\"paramName\\\": \\\"Temperature\\\",\\\"paramValue\\\": "+String(paramValue)+",\\\"createdAt\\\": "+String(lastInterval)+"},\\\"message\\\":\\\"New data from NodeMCU\\\"}";
-    String destination = "/ace/data/organizations/"+ organizationId + "/devices/" + deviceId;
-    stompClient->sendMessage(destination, message);
-    lastInterval = millis();
-    displayMessage("Sent temperature of "+String(paramValue)+" to server", 1);
-  }
-}
-
 void getDeviceDataFromServer(){
   WiFiClient wifiClient;
   HTTPClient httpClient;
@@ -148,8 +158,9 @@ void getDeviceDataFromServer(){
         String responseBody = httpClient.getString();
         StaticJsonDocument<1024> jsonBody;
         deserializeJson(jsonBody, responseBody);
-        ledState = (bool)jsonBody["enabled"];
-        digitalWrite(BUILTIN_LED, !ledState);
+        deviceName = String((const char*)jsonBody["name"]);
+        ledState = !((bool)jsonBody["enabled"]);
+        digitalWrite(BUILTIN_LED, ledState);
       }
     }
   }
@@ -201,15 +212,32 @@ void loadConfigDataFromFS(){
   }
 }
 
-void displayMessage(String message, int delayTime){
+void displayOnOLED(int delayTime, String toolbar = INITIAL_SCREEN_TOOLBAR, String message = INITIAL_SCREEN_BODY){
   display.clearDisplay();
-  display.setCursor(0,5);
+  display.setCursor(0,0);
+  display.println(toolbar);
+  display.setCursor(0,12);
   display.println(message);
   display.display();
-  Serial.println(message);
   delay(delayTime);
 }
 
+void readMPU(){
+  if(millis() > (MPU_TIMEOUT + mpuInterval)){
+    mpu.getEvent(&accel, &gyro, &temp);
+    temperature = (int)temp.temperature;
+    mpuInterval = millis();
+  }
+}
+
+void sendMessageAfterInterval(unsigned long timeout) {
+  if(millis() > (timeout + lastInterval) && WiFi.isConnected()){
+    message = "{\\\"data\\\": {\\\"paramName\\\": \\\"Temperature\\\",\\\"paramValue\\\": "+String(temperature)+",\\\"createdAt\\\": "+String(lastInterval)+"},\\\"message\\\":\\\"New data from NodeMCU\\\"}";
+    String destination = "/ace/data/organizations/"+ organizationId + "/devices/" + deviceId;
+    stompClient->sendMessage(destination, message);
+    lastInterval = millis();
+  }
+}
 
 // Stomp Handlers
 
@@ -219,7 +247,8 @@ Stomp::Stomp_Ack_t handleControlMessage(Stomp::StompCommand cmd){
   Serial.print("Led state: ");
   Serial.println(ledState);
   digitalWrite(LED_BUILTIN, ledState);
-  displayMessage("Toggle LED state", 100);
+  screenBody = ledState ? "Turning off LED" : "Turning on LED";
+  displayOnOLED(100, screenToolbar, screenBody);
   return Stomp::CONTINUE;
 }
 
@@ -227,7 +256,7 @@ void handleConnect(Stomp::StompCommand cmd){
   stompClient->sendMessage("/ace/test", "Test string");
   String destination = "/controlData/organizations/"+ organizationId + "/devices/" + deviceId;
   dataSubscription = stompClient->subscribe((char*)destination.c_str(), Stomp::CLIENT, handleControlMessage);
-  displayMessage("Connected to STOMP broker", 1000);
+  displayOnOLED(1000, screenToolbar, F("Connected to STOMP broker"));
 }
 
 void handleDisconnect(Stomp::StompCommand cmd){
@@ -511,6 +540,9 @@ void setup() {
   Serial.begin(115200);
   Serial.println();
 
+  pinMode(HEALTH_CHECK_PIN, OUTPUT);
+  digitalWrite(HEALTH_CHECK_PIN, HIGH);
+
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, ledState);
 
@@ -519,24 +551,27 @@ void setup() {
     Serial.println(F("SSD1306 allocation failed"));
     while(1); // Don't proceed, loop forever
   }
-  
+
+  display.clearDisplay();
   display.setTextSize(2);             // Normal 1:1 pixel scale
   display.setTextColor(SSD1306_WHITE);   
 
-  displayMessage("ACE Device", 2000);           
+  display.println("ACE Device");
+  display.display();
+  delay(2000);  
   
   display.setTextSize(1);
-  displayMessage("Mounting SPIFFS", 1000);
+  displayOnOLED(1000, screenToolbar, F("Mounting SPIFFS"));
 
   if(!SPIFFS.begin()){
-    displayMessage("Failed to mount SPIFFS", 1000);
+    displayOnOLED(1000, screenToolbar, F("Failed to mount SPIFFS"));
   }
   else {
-    displayMessage("Mounted SPIFFS", 1000);
+    displayOnOLED(1000, screenToolbar, F("Mounted SPIFFS"));
     loadConfigDataFromFS();
   }
   
-  displayMessage("Setting up AP", 1000);
+  displayOnOLED(1000, screenToolbar, F("Setting up AP"));
   WiFi.mode(WIFI_AP_STA);
 
   setUpSoftAP(softAPSSID, softAPPassword);
@@ -553,22 +588,42 @@ void setup() {
   setUpStompHandlers();
 
   stompClient->begin();
-  displayMessage("Initialize WS connection", 1000);
+  displayOnOLED(1000, screenToolbar, F("Initialize WS connection"));
 
   setUpServerRoutes();
 
   if(MDNS.begin(softAPSSID)){
-    displayMessage("MDNS responder started", 1000);
+    displayOnOLED(1000, screenToolbar, F("MDNS responder started"));
   }
 
+  if(!mpu.begin()){
+    displayOnOLED(1000, screenToolbar, F("MPU init failed. Please reset"));
+    while(1);
+  }
+  readMPU();
+  displayOnOLED(1000, screenToolbar, F("MPU started"));
+
   httpServer.begin();
+
+  // Turning off this LED means the device started up okay 
+  digitalWrite(HEALTH_CHECK_PIN, LOW);
 }
 
 void loop() {
   httpServer.handleClient();
   MDNS.update();
+  readMPU();
   if(WiFi.isConnected()){
     webSocket.loop();
-    sendMessageAfterInterval(5000);
+    sendMessageAfterInterval(PUSH_DATA_TIMEOUT);
+    screenBody = "Connected to " + deviceName;
   }
+  else {
+    screenBody = "Disconnected!";
+  }
+
+  // Update OLED display
+
+  screenToolbar = "Temp:"+String(temperature)+"*C   On";
+  displayOnOLED(1, screenToolbar, screenBody);
 }
