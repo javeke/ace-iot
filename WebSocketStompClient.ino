@@ -18,6 +18,9 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 
+#include <TinyGPSPlus.h>
+#include <SoftwareSerial.h>
+
 #include "env.h";
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
@@ -26,13 +29,20 @@
 #define SCREEN_ADDRESS 0x3C
 
 
-#define INITIAL_SCREEN_TOOLBAR "Temp:30*C    On"
-#define INITIAL_SCREEN_BODY "Initializing"
+#define INITIAL_SCREEN_TOOLBAR "Disconnected Temp:30*C"
+#define INITIAL_SCREEN_BODY "Loading..."
 
 #define HEALTH_CHECK_PIN 14
 
 #define PUSH_DATA_TIMEOUT 2000
 #define MPU_TIMEOUT 100
+#define GPS_TIMEOUT 750 
+
+#define GPS_TX_PIN 13
+#define GPS_RX_PIN 12
+
+#define SERIAL_BAUD 115200
+#define GPS_BAUD 9600
 
 // Variables
 
@@ -77,8 +87,15 @@ String screenBody = INITIAL_SCREEN_BODY;
 
 Adafruit_MPU6050 mpu;
 sensors_event_t accel, gyro, temp;
-int temperature = 0;
+float temperature = 0.0;
 int mpuInterval = 0; 
+int gpsInterval = 0;
+float gpsLat = 0.0;
+float gpsLng = 0.0;
+
+TinyGPSPlus gps;
+SoftwareSerial gpsSerial(GPS_RX_PIN, GPS_TX_PIN);
+
 
 // Functions
 
@@ -99,8 +116,6 @@ bool setUpSoftAP(const char* softAPName, const char* softAPPasscode){
 
 bool connectToWifi(const char* wifiName, const char* wifiPassword){
   Serial.println("Scanning WiFi");
-
-  Serial.printf("SSID - %s ::: Password - %s\n", wifiName, wifiPassword);
 
   WiFi.disconnect();
   delay(500);
@@ -225,14 +240,32 @@ void displayOnOLED(int delayTime, String toolbar = INITIAL_SCREEN_TOOLBAR, Strin
 void readMPU(){
   if(millis() > (MPU_TIMEOUT + mpuInterval)){
     mpu.getEvent(&accel, &gyro, &temp);
-    temperature = (int)temp.temperature;
+    temperature = temp.temperature;
     mpuInterval = millis();
   }
 }
 
+void readGPS(){
+  if(millis() > (gpsInterval + GPS_TIMEOUT)){
+    while (gpsSerial.available() > 0)
+    {
+      if(gps.encode(gpsSerial.read())){
+        if(gps.location.isValid()){
+          gpsLat = gps.location.lat();
+          gpsLng = gps.location.lng();
+        }
+        else {
+          Serial.println("Invalid GPS Data");
+        }
+      }
+    }
+    gpsInterval = millis(); 
+  }  
+}
+
 void sendMessageAfterInterval(unsigned long timeout) {
   if(millis() > (timeout + lastInterval) && WiFi.isConnected()){
-    message = "{\\\"data\\\": {\\\"paramName\\\": \\\"Temperature\\\",\\\"paramValue\\\": "+String(temperature)+",\\\"createdAt\\\": "+String(lastInterval)+"},\\\"message\\\":\\\"New data from NodeMCU\\\"}";
+    message = "{\\\"data\\\": {\\\"paramName\\\": \\\"Temperature\\\",\\\"paramValue\\\": "+String((int)temperature)+",\\\"createdAt\\\": "+String(lastInterval)+"},\\\"message\\\":\\\"New data from NodeMCU\\\"}";
     String destination = "/ace/data/organizations/"+ organizationId + "/devices/" + deviceId;
     stompClient->sendMessage(destination, message);
     lastInterval = millis();
@@ -537,8 +570,10 @@ void setUpServerRoutes(){
 
 void setup() {
   // put your setup code here, to run once:
-  Serial.begin(115200);
+  Serial.begin(SERIAL_BAUD);
   Serial.println();
+
+  gpsSerial.begin(GPS_BAUD);
 
   pinMode(HEALTH_CHECK_PIN, OUTPUT);
   digitalWrite(HEALTH_CHECK_PIN, HIGH);
@@ -613,17 +648,20 @@ void loop() {
   httpServer.handleClient();
   MDNS.update();
   readMPU();
+  readGPS();
   if(WiFi.isConnected()){
-    webSocket.loop();
-    sendMessageAfterInterval(PUSH_DATA_TIMEOUT);
-    screenBody = "Connected to " + deviceName;
+//    webSocket.loop();
+//    sendMessageAfterInterval(PUSH_DATA_TIMEOUT);
+    screenToolbar = deviceName;
   }
   else {
-    screenBody = "Disconnected!";
+    screenToolbar = "Disconnected";
   }
+  screenToolbar += "  ";
+  screenToolbar += "T:"+String(temperature, 1)+"*C";
 
   // Update OLED display
 
-  screenToolbar = "Temp:"+String(temperature)+"*C   On";
+  screenBody = "Lat:"+String(gpsLat, 2)+" Lng:"+String(gpsLng, 2);
   displayOnOLED(1, screenToolbar, screenBody);
 }
