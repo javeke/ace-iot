@@ -30,8 +30,9 @@
 
 
 #define INITIAL_SCREEN_TOOLBAR "Disconnected Temp:30*C"
-#define INITIAL_SCREEN_BODY "Loading..."
-#define INITIAL_THIRD_LINE "dd/mm/yy  00:00:00"
+#define INITIAL_SCREEN_BODY "Lat:00.000000"
+#define INITIAL_THIRD_LINE "Lng:00.000000"
+#define INITIAL_FOURTH_LINE "dd/mm/yy  00:00:00"
 
 #define HEALTH_CHECK_PIN 14
 
@@ -85,6 +86,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 String screenToolbar = INITIAL_SCREEN_TOOLBAR;
 String screenBody = INITIAL_SCREEN_BODY;
 String thirdLine = INITIAL_THIRD_LINE;
+String fourthLine = INITIAL_FOURTH_LINE;
 
 Adafruit_MPU6050 mpu;
 sensors_event_t accel, gyro, temp;
@@ -231,10 +233,12 @@ void displayOnOLED(int delayTime, String toolbar = INITIAL_SCREEN_TOOLBAR, Strin
   display.clearDisplay();
   display.setCursor(0,0);
   display.println(toolbar);
-  display.setCursor(0,9);
+  display.setCursor(0,8);
   display.println(secondLine);
-  display.setCursor(0,18);
+  display.setCursor(0,16);
   display.println(thirdLine);
+  display.setCursor(0,24);
+  display.println(fourthLine);
   display.display();
   delay(delayTime);
 }
@@ -255,24 +259,45 @@ void readGPS(){
         gpsLng = gps.location.lng();
       }
 
-      thirdLine = "";
+      fourthLine = "";
 
       if(gps.date.isValid()){
-        thirdLine += String(gps.date.day())+"/";
-        thirdLine += (String(gps.date.month()) + "/");
-        thirdLine += String(gps.date.year()) +"  ";
+        uint8_t day = gps.date.day();
+        uint8_t month = gps.date.month();
+
+        if(day<10)
+          fourthLine +="0";
+        fourthLine += String(day)+"/";
+
+        if(month<10)
+          fourthLine += "0";
+        fourthLine += String(month)+"/";
+
+        fourthLine += String(gps.date.year())+" ";
       }
       else {
-        thirdLine += "dd/mm/yy  ";
+        fourthLine += "dd/mm/yy ";
       }
 
       if(gps.time.isValid()){
-        thirdLine += String(gps.time.hour())+":";
-        thirdLine += (String(gps.time.minute()) + ":");
-        thirdLine += String(gps.time.second());
+        uint8_t hour = gps.time.hour();
+        uint8_t minute = gps.time.minute();
+        uint8_t second = gps.time.second();
+
+        if(hour<10)
+          fourthLine+="0";
+        fourthLine += String(hour)+":";
+
+        if(minute<10)
+          fourthLine+="0";
+        fourthLine += String(minute) + ":";
+
+        if(second<10)
+          fourthLine+="0";        
+        fourthLine += String(second);
       }
       else {
-        thirdLine += "00:00:00";
+        fourthLine += "00:00:00";
       }
     }
   }
@@ -672,11 +697,13 @@ void loop() {
   else {
     screenToolbar = "Disconnected";
   }
+
   screenToolbar += "  ";
   screenToolbar += "T:"+String(temperature, 1)+"*C";
 
-  // Update OLED display
+  screenBody = "Lat:"+String(gpsLat, 6);
+  thirdLine = "Lng:"+String(gpsLng, 6);
 
-  screenBody = "lt:"+String(gpsLat, 3)+" lg:"+String(gpsLng, 3);
-  displayOnOLED(1, screenToolbar, screenBody, thirdLine);
+  // Update OLED display
+  displayOnOLED(1, screenToolbar, screenBody, thirdLine, fourthLine);
 }
