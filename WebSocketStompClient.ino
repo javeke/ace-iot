@@ -31,17 +31,17 @@
 
 #define INITIAL_SCREEN_TOOLBAR "Disconnected Temp:30*C"
 #define INITIAL_SCREEN_BODY "Loading..."
+#define INITIAL_THIRD_LINE "dd/mm/yy  00:00:00"
 
 #define HEALTH_CHECK_PIN 14
 
 #define PUSH_DATA_TIMEOUT 2000
-#define MPU_TIMEOUT 100
-#define GPS_TIMEOUT 750 
+#define MPU_TIMEOUT 1000
 
 #define GPS_TX_PIN 13
 #define GPS_RX_PIN 12
 
-#define SERIAL_BAUD 115200
+#define SERIAL_BAUD 9600
 #define GPS_BAUD 9600
 
 // Variables
@@ -84,12 +84,12 @@ StaticJsonDocument<512> secretJsonData;
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 String screenToolbar = INITIAL_SCREEN_TOOLBAR;
 String screenBody = INITIAL_SCREEN_BODY;
+String thirdLine = INITIAL_THIRD_LINE;
 
 Adafruit_MPU6050 mpu;
 sensors_event_t accel, gyro, temp;
 float temperature = 0.0;
 int mpuInterval = 0; 
-int gpsInterval = 0;
 float gpsLat = 0.0;
 float gpsLng = 0.0;
 
@@ -109,7 +109,7 @@ bool setUpSoftAP(const char* softAPName, const char* softAPPasscode){
     return true;
   }
   else {
-    Serial.println("Failed to set up soft AP.");
+    Serial.println(F("Failed to set up soft AP."));
     return false;
   }
 }
@@ -143,7 +143,7 @@ bool connectToWifi(const char* wifiName, const char* wifiPassword){
     return false;
   }
 
-  Serial.println("Connecting to WiFi");
+  Serial.println(F("Connecting to WiFi"));
   WiFi.begin(wifiName, wifiPassword);
   
   if (WiFi.waitForConnectResult() != WL_CONNECTED)
@@ -151,7 +151,7 @@ bool connectToWifi(const char* wifiName, const char* wifiPassword){
     return false;
   }
 
-  Serial.println("Connected to WiFi");
+  Serial.println(F("Connected to WiFi"));
   Serial.print("IP: ");
   Serial.println(WiFi.localIP());
   return true;
@@ -160,13 +160,13 @@ bool connectToWifi(const char* wifiName, const char* wifiPassword){
 void getDeviceDataFromServer(){
   WiFiClient wifiClient;
   HTTPClient httpClient;
-  Serial.println("Fetching device data from server");
+  Serial.println(F("Fetching device data from server"));
   if(httpClient.begin(wifiClient, "http://"+host+":"+String(port)+"/api/organizations/"+organizationId+"/devices/"+deviceId+"/info")){
     int responseCode = httpClient.GET();
 
     if(responseCode < 0){
       Serial.println("Response Code: " + responseCode);
-      Serial.println("Failed to get device data from server");
+      Serial.println(F("Failed to get device data from server"));
     }
     else {
       if(responseCode == HTTP_CODE_OK){
@@ -227,12 +227,14 @@ void loadConfigDataFromFS(){
   }
 }
 
-void displayOnOLED(int delayTime, String toolbar = INITIAL_SCREEN_TOOLBAR, String message = INITIAL_SCREEN_BODY){
+void displayOnOLED(int delayTime, String toolbar = INITIAL_SCREEN_TOOLBAR, String secondLine = INITIAL_SCREEN_BODY, String thirdLine = "", String fourthLine = ""){
   display.clearDisplay();
   display.setCursor(0,0);
   display.println(toolbar);
-  display.setCursor(0,12);
-  display.println(message);
+  display.setCursor(0,9);
+  display.println(secondLine);
+  display.setCursor(0,18);
+  display.println(thirdLine);
   display.display();
   delay(delayTime);
 }
@@ -246,21 +248,34 @@ void readMPU(){
 }
 
 void readGPS(){
-  if(millis() > (gpsInterval + GPS_TIMEOUT)){
-    while (gpsSerial.available() > 0)
-    {
-      if(gps.encode(gpsSerial.read())){
-        if(gps.location.isValid()){
-          gpsLat = gps.location.lat();
-          gpsLng = gps.location.lng();
-        }
-        else {
-          Serial.println("Invalid GPS Data");
-        }
+  while (gpsSerial.available() > 0){
+    if(gps.encode(gpsSerial.read())){
+      if(gps.location.isValid()){
+        gpsLat = gps.location.lat();
+        gpsLng = gps.location.lng();
+      }
+
+      thirdLine = "";
+
+      if(gps.date.isValid()){
+        thirdLine += String(gps.date.day())+"/";
+        thirdLine += (String(gps.date.month()) + "/");
+        thirdLine += String(gps.date.year()) +"  ";
+      }
+      else {
+        thirdLine += "dd/mm/yy  ";
+      }
+
+      if(gps.time.isValid()){
+        thirdLine += String(gps.time.hour())+":";
+        thirdLine += (String(gps.time.minute()) + ":");
+        thirdLine += String(gps.time.second());
+      }
+      else {
+        thirdLine += "00:00:00";
       }
     }
-    gpsInterval = millis(); 
-  }  
+  }
 }
 
 void sendMessageAfterInterval(unsigned long timeout) {
@@ -429,11 +444,11 @@ void handleConfigureRoute(){
           stompClient->unsubscribe(dataSubscription);
           dataSubscription = stompClient->subscribe((char*)destination.c_str(), Stomp::CLIENT, handleControlMessage);
 
-          Serial.println("Updated the metadata file");
+          Serial.println(F("Updated the metadata file"));
           deviceMessage += "Metadata file found and updated\n";
         }
         else {
-          Serial.println("Failed to update the metadata file");
+          Serial.println(F("Failed to update the metadata file"));
           deviceMessage += "Metadata file update failed\n";
         }
 
@@ -461,11 +476,11 @@ void handleConfigureRoute(){
           stompClient->unsubscribe(dataSubscription);
           dataSubscription = stompClient->subscribe((char*)destination.c_str(), Stomp::CLIENT, handleControlMessage);
           
-          Serial.println("Updated the metadata file");
+          Serial.println(F("Updated the metadata file"));
           orgMessage += "Metadata file found and updated\n";
         }
         else {
-          Serial.println("Failed to update the metadata file");
+          Serial.println(F("Failed to update the metadata file"));
           orgMessage += "Metadata file update failed\n";
         }
         message += orgMessage;
@@ -499,9 +514,9 @@ void handleConfigureRoute(){
         stompClient->onError(handleError);
       
         stompClient->begin();
-        Serial.println("Reinitialize WS connection");
+        Serial.println(F("Reinitialize WS connection"));
 
-        Serial.println("Updated the host in the secrets file");
+        Serial.println(F("Updated the host in the secrets file"));
         hostMessage += "Secrets file found and updated with host\n";
         message += hostMessage;
         break;
@@ -538,9 +553,9 @@ void handleConfigureRoute(){
         stompClient->onError(handleError);
       
         stompClient->begin();
-        Serial.println("Reinitialize WS connection");
+        Serial.println(F("Reinitialize WS connection"));
 
-        Serial.println("Updated the port in the secrets file");
+        Serial.println(F("Updated the port in the secrets file"));
         portMessage += "Secrets file found and updated with port\n";
         message += portMessage;
         break;
@@ -558,7 +573,7 @@ void handleConfigureRoute(){
 }
 
 void setUpServerRoutes(){
-  Serial.println("Setting up web server");
+  Serial.println(F("Setting up web server"));
 
   httpServer.on("/home", handleHomeRoute);
   httpServer.on("/state", handleStateRoute);
@@ -591,7 +606,7 @@ void setup() {
   display.setTextSize(2);             // Normal 1:1 pixel scale
   display.setTextColor(SSD1306_WHITE);   
 
-  display.println("ACE Device");
+  display.println(F("ACE Device"));
   display.display();
   delay(2000);  
   
@@ -662,6 +677,6 @@ void loop() {
 
   // Update OLED display
 
-  screenBody = "Lat:"+String(gpsLat, 2)+" Lng:"+String(gpsLng, 2);
-  displayOnOLED(1, screenToolbar, screenBody);
+  screenBody = "lt:"+String(gpsLat, 3)+" lg:"+String(gpsLng, 3);
+  displayOnOLED(1, screenToolbar, screenBody, thirdLine);
 }
