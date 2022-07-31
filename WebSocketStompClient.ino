@@ -36,8 +36,9 @@
 
 #define HEALTH_CHECK_PIN 14
 
-#define PUSH_DATA_TIMEOUT 2000
+#define PUSH_DATA_TIMEOUT 5000
 #define MPU_TIMEOUT 1000
+#define OLED_TIMEOUT 100
 
 #define GPS_TX_PIN 13
 #define GPS_RX_PIN 12
@@ -73,7 +74,6 @@ unsigned long lastInterval = 0;
 
 bool IS_SOCKJS = true;
 Stomp::StompClient* stompClient = new Stomp::StompClient(webSocket, host.c_str(), port, stompUrl.c_str(), IS_SOCKJS);
-String message = "";
 
 ESP8266WebServer httpServer(80);
 
@@ -92,6 +92,7 @@ Adafruit_MPU6050 mpu;
 sensors_event_t accel, gyro, temp;
 float temperature = 0.0;
 int mpuInterval = 0; 
+int oledInterval = 0;
 float gpsLat = 0.0;
 float gpsLng = 0.0;
 
@@ -229,18 +230,31 @@ void loadConfigDataFromFS(){
   }
 }
 
-void displayOnOLED(int delayTime, String toolbar = INITIAL_SCREEN_TOOLBAR, String secondLine = INITIAL_SCREEN_BODY, String thirdLine = "", String fourthLine = ""){
+void displayOnOLED(int delayTime, String& toolbar, String secondLine){
   display.clearDisplay();
   display.setCursor(0,0);
   display.println(toolbar);
   display.setCursor(0,8);
   display.println(secondLine);
-  display.setCursor(0,16);
-  display.println(thirdLine);
-  display.setCursor(0,24);
-  display.println(fourthLine);
   display.display();
   delay(delayTime);
+}
+
+void displayOnOLED(int delayTime){
+  if(millis() > (oledInterval + OLED_TIMEOUT)){
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.println(screenToolbar);
+    display.setCursor(0,8);
+    display.println(screenBody);
+    display.setCursor(0,16);
+    display.println(thirdLine);
+    display.setCursor(0,24);
+    display.println(fourthLine);
+    display.display();
+    delay(delayTime);
+    oledInterval = millis();
+  }
 }
 
 void readMPU(){
@@ -304,8 +318,8 @@ void readGPS(){
 }
 
 void sendMessageAfterInterval(unsigned long timeout) {
-  if(millis() > (timeout + lastInterval) && WiFi.isConnected()){
-    message = "{\\\"data\\\": {\\\"paramName\\\": \\\"Temperature\\\",\\\"paramValue\\\": "+String((int)temperature)+",\\\"createdAt\\\": "+String(lastInterval)+"},\\\"message\\\":\\\"New data from NodeMCU\\\"}";
+  if(millis() > (timeout + lastInterval)){
+    String message = "{\\\"data\\\": {\\\"paramName\\\": \\\"Temperature\\\",\\\"paramValue\\\": "+String((int)temperature)+",\\\"createdAt\\\": "+String(lastInterval)+"},\\\"message\\\":\\\"New data from NodeMCU\\\"}";
     String destination = "/ace/data/organizations/"+ organizationId + "/devices/" + deviceId;
     stompClient->sendMessage(destination, message);
     lastInterval = millis();
@@ -320,16 +334,12 @@ Stomp::Stomp_Ack_t handleControlMessage(Stomp::StompCommand cmd){
   Serial.print("Led state: ");
   Serial.println(ledState);
   digitalWrite(LED_BUILTIN, ledState);
-  screenBody = ledState ? "Turning off LED" : "Turning on LED";
-  displayOnOLED(100, screenToolbar, screenBody);
   return Stomp::CONTINUE;
 }
 
 void handleConnect(Stomp::StompCommand cmd){
-  stompClient->sendMessage("/ace/test", "Test string");
   String destination = "/controlData/organizations/"+ organizationId + "/devices/" + deviceId;
   dataSubscription = stompClient->subscribe((char*)destination.c_str(), Stomp::CLIENT, handleControlMessage);
-  displayOnOLED(1000, screenToolbar, F("Connected to STOMP broker"));
 }
 
 void handleDisconnect(Stomp::StompCommand cmd){
@@ -690,8 +700,8 @@ void loop() {
   readMPU();
   readGPS();
   if(WiFi.isConnected()){
-//    webSocket.loop();
-//    sendMessageAfterInterval(PUSH_DATA_TIMEOUT);
+    webSocket.loop();
+    sendMessageAfterInterval(PUSH_DATA_TIMEOUT);
     screenToolbar = deviceName;
   }
   else {
@@ -703,7 +713,7 @@ void loop() {
 
   screenBody = "Lat:"+String(gpsLat, 6);
   thirdLine = "Lng:"+String(gpsLng, 6);
-
+  
   // Update OLED display
-  displayOnOLED(1, screenToolbar, screenBody, thirdLine, fourthLine);
+  displayOnOLED(10);
 }
